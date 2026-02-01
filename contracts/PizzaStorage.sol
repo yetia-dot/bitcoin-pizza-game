@@ -14,11 +14,26 @@ contract PizzaStorage {
         string message; // 10-character shoutout
     }
 
+    struct Room {
+        string name;
+        address creator;
+        uint256 level; // Starts at 1, grows independently
+        uint256 totalSlices; // Track slices bought in this room
+        bool isPrivate;
+        bytes32 keyHash;
+    }
+
     // --- Global Game State ---
     uint256 public totalSlicesMinted;
-    uint256 public currentGlobalLevel; // Starts at 1
+    // currentGlobalLevel is deprecated/unused in favor of per-Room levels, 
+    // but kept to avoid storage collision if this were a real proxy upgrade.
+    // We will just likely ignore it or repurpose it.
+    uint256 public currentGlobalLevel; 
 
     // --- Room & Level Data ---
+    string[] public allRoomIds;
+    mapping(string => Room) public rooms;
+
     // Mapping: RoomID => (SliceIndex => SliceData)
     mapping(string => mapping(uint256 => Slice)) public roomSlices;
     
@@ -27,6 +42,14 @@ contract PizzaStorage {
 
     // Mapping: RoomID => address of the current "King" (Landlord)
     mapping(string => address) public roomKings;
+
+    // --- Economy & Identity ---
+    address public pizzaCoin;
+    mapping(address => bool) public registeredChefs;
+    mapping(address => string) public chefNames;
+
+    uint256 public constant REGISTRATION_BONUS = 10000 * 10**18;
+    uint256 public constant SLICE_COST = 100 * 10**18;
 
     // --- Constants / Config ---
     uint256 public constant SEASONING_PERIOD = 1 hours;

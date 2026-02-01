@@ -1,0 +1,150 @@
+.lobby-container {
+    max-width: 600px;
+    margin: 0 auto;
+    border: 2px solid #444;
+    padding: 20px;
+    background: rgba(0,0,0,0.8);
+    position: relative;
+    color: #0f0;
+}
+
+.lobby-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start; /* Changed to flex-start for multiline */
+    border-bottom: 2px dashed #444;
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap; /* Allow wrapping on small screens */
+    gap: 20px;
+}
+
+.create-section {
+    display: flex;
+    flex-direction: column;
+    gap: 15px; /* Increased gap */
+    width: 100%;
+}
+
+.create-row {
+    display: flex;
+    gap: 10px;
+}
+
+.create-options {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    font-size: 14px; /* Increased font size */
+    background: #111; /* Add background for visibility */
+    padding: 10px;
+    border: 1px dotted #333;
+}
+
+.lobby-input {
+    background: #111;
+    border: 1px solid #666;
+    color: #0f0;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    flex-grow: 1;
+}
+
+.lobby-btn {
+    background: #222;
+    border: 1px solid #0f0;
+    color: #0f0;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+
+.lobby-btn:hover {
+    background: #0f0;
+    color: #000;
+}
+
+.lobby-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.room-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.room-card {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px;
+    border: 1px solid #333;
+    align-items: center;
+    background: #050505;
+}
+
+.room-name {
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+.join-btn {
+    background: transparent;
+    border: 1px solid;
+    padding: 5px 15px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+}
+
+.join-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.no-rooms {
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    padding: 20px;
+}
+
+.modal-overlay {
+    position: fixed; /* Changed to fixed for better centering */
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal {
+    border: 2px solid #ff00ff;
+    padding: 30px;
+    background: #000;
+    text-align: center;
+    min-width: 300px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.privacy-label {
+    display: flex; 
+    align-items: center; 
+    gap: 8px; 
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.privacy-input {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
