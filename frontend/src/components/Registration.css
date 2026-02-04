@@ -1,0 +1,142 @@
+.registration-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    background-color: #1a1a1a;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+/* LEFT SIDE: FORM */
+.registration-form-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: #000000;
+    /* Distinct background */
+    padding: 40px;
+    z-index: 10;
+    box-shadow: 5px 0 15px rgba(0, 0, 0, 0.5);
+}
+
+.registration-content {
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+
+.warning-box {
+    margin-top: 40px;
+    border: 1px solid #ff4444;
+    padding: 15px;
+    font-size: 10px;
+    color: #ff4444;
+    background: rgba(255, 68, 68, 0.1);
+}
+
+/* RIGHT SIDE: VISUALS */
+.registration-visuals-section {
+    flex: 1.5;
+    /* Takes up slightly more space */
+    position: relative;
+    background: radial-gradient(circle at center, #2a2a2a 0%, #111 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.pizza-box-img {
+    width: 60%;
+    max-width: 500px;
+    z-index: 5;
+    /* Gentle hover effect */
+    animation: float 6s ease-in-out infinite;
+}
+
+/* ANIMATED ELEMENTS */
+.pop-icon {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    object-fit: contain;
+    opacity: 0;
+    z-index: 4;
+}
+
+.pop-slice {
+    animation: popAnim 4s infinite ease-out;
+}
+
+.pop-coin {
+    animation: popAnim 5s infinite ease-out;
+    /* Different timing */
+    animation-delay: 2s;
+}
+
+/* KEYFRAMES */
+@keyframes float {
+    0% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-20px);
+    }
+
+    100% {
+        transform: translateY(0px);
+    }
+}
+
+@keyframes popAnim {
+    0% {
+        transform: scale(0) translate(0, 0);
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        transform: scale(1.5) translate(var(--tx), var(--ty));
+        opacity: 0;
+    }
+}
+
+/* Random positions for popping elements via nth-child would be ideal, 
+   but we'll set inline styles in JSX for randomness or use specific classes here 
+   if we had a fixed number. For now, let's keep it simple in CSS and handle position in JS or hardcoded classes. */
+
+
+/* MEDIA QUERIES FOR MOBILE/TABLET */
+@media (max-width: 768px) {
+    .registration-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
+    .registration-form-section {
+        order: 1;
+        /* Form on top */
+        padding: 40px 20px;
+        min-height: 50vh;
+    }
+
+    .registration-visuals-section {
+        order: 2;
+        /* Visuals on bottom */
+        min-height: 50vh;
+        padding: 40px;
+    }
+
+    .pizza-box-img {
+        width: 80%;
+    }
+}
