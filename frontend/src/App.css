@@ -2,7 +2,7 @@
 .container {
   text-align: center;
   padding: 40px;
-  background-color: #121212;
+  /* background-color: #121212; */
   color: white;
   min-height: 100vh;
   font-family: sans-serif;
@@ -21,9 +21,24 @@
   max-width: 600px;
 }
 
-.stat-box { text-align: left; font-size: 12px; }
-.label { margin: 0; color: #888; letter-spacing: 1px; font-size: 10px; text-transform: uppercase; }
-.value { margin: 2px 0 8px 0; font-weight: bold; font-family: monospace; }
+.stat-box {
+  text-align: left;
+  font-size: 12px;
+}
+
+.label {
+  margin: 0;
+  color: #888;
+  letter-spacing: 1px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.value {
+  margin: 2px 0 8px 0;
+  font-weight: bold;
+  font-family: monospace;
+}
 
 /* Health/Influence Bar */
 .health-bar-container {
@@ -67,7 +82,10 @@
 /* King Overlay */
 .king-overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background-color: rgba(255, 215, 0, 0.95);
   z-index: 1000;
   display: flex;

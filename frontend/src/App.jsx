@@ -6,12 +6,16 @@ import PizzaCoinABI from './abis/PizzaCoin.json';
 import { burnerManager } from './utils/BurnerWallet';
 import { Registration } from './components/Registration';
 import { Lobby } from './components/Lobby';
+import SplashScreen from './components/SplashScreen';
+import LoadingScreen from './components/LoadingScreen';
 import './App.css';
 
-const CONTRACT_ADDRESS = "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e";
+const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 const RPC_URL = "http://127.0.0.1:8545";
 
 function App() {
+  // VIEW STATE: 'SPLASH' -> 'LOADING' -> 'CONTENT'
+  const [appView, setAppView] = useState('SPLASH');
   const [gameState, setGameState] = useState("LOADING"); // LOADING, REGISTER, GAME
   const [activeRoomId, setActiveRoomId] = useState(null);
   const [slices, setSlices] = useState(Array(16).fill(null));
@@ -24,61 +28,85 @@ function App() {
   // 1. Initialize Identity & Connection
   useEffect(() => {
     const init = async () => {
-      // Load Identity
-      const wallet = burnerManager.getWallet();
-      setBurnerWallet(wallet);
-
-      // Connect to Blockchain
-      const provider = new ethers.JsonRpcProvider(RPC_URL);
-      const signer = wallet.connect(provider);
-      const pizzaContract = new ethers.Contract(CONTRACT_ADDRESS, PizzaABI.abi, signer);
-      setContract(pizzaContract);
-
-      // 3. AUTO-FUND (Books gas for the user transparently)
-      if (RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost")) {
-        const bal = await provider.getBalance(wallet.address);
-        if (bal < ethers.parseEther("0.05")) {
-          console.log("Creating localized gas subsidy...");
-          try {
-            const adminSigner = await provider.getSigner(0);
-            await adminSigner.sendTransaction({
-              to: wallet.address,
-              value: ethers.parseEther("1.0")
-            });
-          } catch (e) {
-            console.error("Auto-fund failed:", e);
-          }
-        }
-      }
-
-      // 4. Update ETH Balance
-      const ethBal = await provider.getBalance(wallet.address);
-      setBalance(ethers.formatEther(ethBal));
-
-      // 5. Check Registration Status
       try {
-        const isRegistered = await pizzaContract.registeredChefs(wallet.address);
+        // Load Identity
+        const wallet = burnerManager.getWallet();
+        setBurnerWallet(wallet);
 
-        if (isRegistered) {
-          setGameState("GAME");
+        // Connect to Blockchain
+        const provider = new ethers.JsonRpcProvider(RPC_URL);
 
-          // FETCH PZZA BALANCE
-          try {
-            const coinAddress = await pizzaContract.pizzaCoin();
-            const coinContract = new ethers.Contract(coinAddress, PizzaCoinABI.abi, signer);
-            const pVal = await coinContract.balanceOf(wallet.address);
-            setPzzaBalance(ethers.formatEther(pVal));
-          } catch (e) {
-            console.error("Coin fetch error", e);
-          }
-
-          fetchGameData(pizzaContract, wallet.address);
-        } else {
+        // Timeout check for provider connection
+        try {
+          await provider.getNetwork();
+        } catch (e) {
+          console.warn("Blockchain unreachable, treating as offline/register mode");
           setGameState("REGISTER");
+          return;
         }
-      } catch (err) {
-        console.error("Failed to check registration:", err);
-        setGameState("REGISTER");
+
+        const signer = wallet.connect(provider);
+        const pizzaContract = new ethers.Contract(CONTRACT_ADDRESS, PizzaABI.abi, signer);
+        setContract(pizzaContract);
+
+        // 3. AUTO-FUND (Books gas for the user transparently)
+        if (RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost")) {
+          try {
+            const bal = await provider.getBalance(wallet.address);
+            if (bal < ethers.parseEther("0.05")) {
+              console.log("Creating localized gas subsidy...");
+              try {
+                const adminSigner = await provider.getSigner(0);
+                await adminSigner.sendTransaction({
+                  to: wallet.address,
+                  value: ethers.parseEther("1.0")
+                });
+              } catch (e) {
+                console.error("Auto-fund failed:", e);
+              }
+            }
+          } catch (err) {
+            console.warn("Local node funding check failed", err);
+          }
+        }
+
+        // 4. Update ETH Balance
+        try {
+          const ethBal = await provider.getBalance(wallet.address);
+          setBalance(ethers.formatEther(ethBal));
+        } catch (err) {
+          console.warn("Could not fetch balance", err);
+        }
+
+        // 5. Check Registration Status
+        try {
+          // If contract is not deployed or address is wrong, this might fail
+          const isRegistered = await pizzaContract.registeredChefs(wallet.address);
+
+          if (isRegistered) {
+            setGameState("GAME");
+
+            // FETCH PZZA BALANCE
+            try {
+              const coinAddress = await pizzaContract.pizzaCoin();
+              const coinContract = new ethers.Contract(coinAddress, PizzaCoinABI.abi, signer);
+              const pVal = await coinContract.balanceOf(wallet.address);
+              setPzzaBalance(ethers.formatEther(pVal));
+            } catch (e) {
+              console.error("Coin fetch error", e);
+            }
+
+            fetchGameData(pizzaContract, wallet.address);
+          } else {
+            setGameState("REGISTER");
+          }
+        } catch (err) {
+          console.error("Failed to check registration (Contract might be missing):", err);
+          setGameState("REGISTER"); // Fallback to register if contract call fails
+        }
+      } catch (fatalError) {
+        console.error("Fatal initialization error:", fatalError);
+        setGameState("REGISTER"); // Absolute fallback to ensure app loads
       }
     };
 
@@ -137,7 +165,21 @@ function App() {
   };
 
   // 4. Render
-  if (gameState === "LOADING") return <div className="container" style={{ paddingTop: '50px' }}><h1>INITIALIZING...</h1></div>;
+  if (appView === 'SPLASH') {
+    return <SplashScreen onComplete={() => setAppView('LOADING')} />;
+  }
+
+  if (appView === 'LOADING') {
+    return (
+      <LoadingScreen
+        isReady={gameState !== "LOADING"}
+        onComplete={() => setAppView('CONTENT')}
+      />
+    );
+  }
+
+  // Fallback if somehow still loading but passed loading screen (shouldn't happen with new logic but safe to keep)
+  if (gameState === "LOADING") return null;
 
   if (gameState === "REGISTER") {
     return (
