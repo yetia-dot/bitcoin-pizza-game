@@ -14,15 +14,15 @@ export function Registration({ onRegister, isRegistering }) {
             {/* LEFT/TOP: FORM */}
             <div className="registration-form-section">
                 <div className="registration-content">
-                    <h1>👨‍🍳 CHEF REGISTRATION</h1>
-                    <p style={{ color: '#aaa', marginBottom: '30px' }}>
-                        Enter your alias to join the global kitchen.
+                    <h1>🕵️ SYNDICATE REGISTRATION</h1>
+                    <p style={{ color: '#aaa', marginBottom: '20px', fontFamily: 'monospace' }}>
+                        Identify yourself, Network Agent.
                     </p>
 
                     <input
                         type="text"
                         maxLength="20"
-                        placeholder="ENTER CHEF NAME"
+                        placeholder="ENTER WORKER CALLSIGN"
                         value={username}
                         onChange={(e) => setUsername(e.target.value.toUpperCase())}
                         style={{
@@ -32,25 +32,60 @@ export function Registration({ onRegister, isRegistering }) {
                             textAlign: 'center',
                             marginBottom: '20px',
                             background: '#000',
-                            border: '2px solid #555',
-                            color: '#fff',
-                            fontFamily: 'monospace'
+                            border: '2px solid #0f0',
+                            color: '#0f0',
+                            fontFamily: 'Courier New, monospace',
+                            boxShadow: '0 0 10px rgba(0, 255, 0, 0.2)'
                         }}
                     />
+
+                    {/* BONUS DISPLAY */}
+                    <div style={{
+                        margin: '20px 0',
+                        padding: '15px',
+                        background: 'rgba(255, 215, 0, 0.1)',
+                        border: '1px dashed #FFD700',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '15px'
+                    }}>
+                        <div style={{ fontSize: '30px' }}>🪙</div>
+                        <div style={{ textAlign: 'left' }}>
+                            <div style={{ color: '#FFD700', fontSize: '12px', letterSpacing: '2px' }}>SIGNING BONUS</div>
+                            <div style={{ color: '#fff', fontSize: '24px', fontWeight: 'bold' }}>10,000 $PZZA</div>
+                        </div>
+                    </div>
+
+                    <div className="terminal-status" style={{
+                        marginBottom: '20px',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        color: '#555',
+                        fontFamily: 'monospace'
+                    }}>
+                        <p>connection: <span style={{ color: '#0f0' }}>BASE_SEPOLIA_NODE_04</span></p>
+                        <p>auth_key: <span style={{ color: '#0f0' }}>[0x...3FF5]</span></p>
+                    </div>
 
                     <button
                         onClick={handleSubmit}
                         disabled={!username || isRegistering}
                         className="btn-primary"
-                        style={{ width: '100%', padding: '15px', fontSize: '16px' }}
+                        style={{
+                            width: '100%',
+                            padding: '15px',
+                            fontSize: '16px',
+                            background: isRegistering ? '#333' : '#0f0',
+                            color: isRegistering ? '#888' : '#000',
+                            border: 'none',
+                            fontWeight: 'bold',
+                            cursor: isRegistering ? 'not-allowed' : 'pointer',
+                            textTransform: 'uppercase'
+                        }}
                     >
-                        {isRegistering ? "MINTING IDENTITY..." : "INITIALIZE CHEF"}
+                        {isRegistering ? "AUTHORIZING..." : "[ AUTHORIZE & ENTER LOBBY ]"}
                     </button>
-
-                    <div className="warning-box">
-                        ⚠️ CAUTION: YOUR CHEF CREDENTIALS ARE STORED IN THIS TERMINAL'S CACHE.
-                        CLEARING DATA WILL FORFEIT YOUR $PZZA.
-                    </div>
                 </div>
             </div>
 

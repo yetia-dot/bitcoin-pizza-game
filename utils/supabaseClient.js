@@ -1,47 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // ============================================================================
-// IP DETECTION UTILITY
-// ============================================================================
-
-/**
- * Get the user's public IP address
- * In dev mode (localhost), returns '127.0.0.1'
- * In production, fetches from ipify.org
- */
-export async function getClientIP() {
-    // Check if we're in dev mode
-    if (import.meta.env.DEV || window.location.hostname === 'localhost') {
-        return '127.0.0.1'
-    }
-
-    try {
-        const response = await fetch('https://api.ipify.org?format=json')
-        const data = await response.json()
-        return data.ip
-    } catch (error) {
-        console.warn('Failed to fetch IP, using fallback:', error)
-        return '0.0.0.0' // Fallback IP
-    }
-}
-
-// ============================================================================
-// HELPER FUNCTIONS FOR FRONTEND
+// HELPER FUNCTIONS FOR COMMON QUERIES
 // ============================================================================
 
 /**
  * Register a new player in Supabase after on-chain registration
  * @param {string} walletAddress - Ethereum wallet address
  * @param {string} username - Player's chosen username
+ * @param {string} ipAddress - IP address for Sybil detection
  */
-export async function registerPlayer(walletAddress, username) {
-    const ipAddress = await getClientIP()
-
+export async function registerPlayer(walletAddress, username, ipAddress) {
     const { data, error } = await supabase
         .from('players')
         .upsert({
@@ -58,6 +32,89 @@ export async function registerPlayer(walletAddress, username) {
     if (error) {
         console.error('Failed to register player in Supabase:', error)
         throw error
+    }
+
+    return data
+}
+
+/**
+ * Create a new room in Supabase after on-chain room creation
+ * @param {string} roomId - Unique room identifier
+ * @param {string} creatorAddress - Wallet address of room creator
+ * @param {boolean} isPrivate - Whether the room is private
+ */
+export async function createRoom(roomId, creatorAddress, isPrivate = false) {
+    const { data, error } = await supabase
+        .from('rooms')
+        .insert({
+            room_id: roomId,
+            creator_address: creatorAddress,
+            is_private: isPrivate,
+            level: 1,
+            total_slices: 0
+        })
+        .select()
+        .single()
+
+    if (error) {
+        console.error('Failed to create room in Supabase:', error)
+        throw error
+    }
+
+    return data
+}
+
+/**
+ * Update room king after a hostile takeover
+ * @param {string} roomId - Room identifier
+ * @param {string} newKingAddress - Wallet address of new king
+ */
+export async function updateRoomKing(roomId, newKingAddress) {
+    const { data, error } = await supabase
+        .from('rooms')
+        .update({
+            current_king: newKingAddress,
+            updated_at: new Date().toISOString()
+        })
+        .eq('room_id', roomId)
+        .select()
+        .single()
+
+    if (error) {
+        console.error('Failed to update room king:', error)
+        throw error
+    }
+
+    return data
+}
+
+/**
+ * Increment room slice count after a slice purchase
+ * @param {string} roomId - Room identifier
+ */
+export async function incrementRoomSlices(roomId) {
+    const { data, error } = await supabase.rpc('increment_room_slices', {
+        p_room_id: roomId
+    })
+
+    if (error) {
+        console.error('Failed to increment room slices:', error)
+        // Fallback to manual increment if RPC function doesn't exist
+        const { data: room } = await supabase
+            .from('rooms')
+            .select('total_slices')
+            .eq('room_id', roomId)
+            .single()
+
+        if (room) {
+            await supabase
+                .from('rooms')
+                .update({
+                    total_slices: room.total_slices + 1,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('room_id', roomId)
+        }
     }
 
     return data
@@ -88,55 +145,33 @@ export async function getAllRooms(includePrivate = true) {
 }
 
 /**
- * Subscribe to real-time room updates
- * @param {Function} callback - Function to call when rooms change
- * @returns {Object} Subscription object (call .unsubscribe() to stop)
- */
-export function subscribeToRooms(callback) {
-    return supabase
-        .channel('rooms-channel')
-        .on('postgres_changes',
-            { event: '*', schema: 'public', table: 'rooms' },
-            callback
-        )
-        .subscribe()
-}
-
-/**
  * Check if an IP address already has an active session in a room (Sybil prevention)
  * @param {string} roomId - Room identifier
- * @param {string} ipAddress - IP address to check (optional, will auto-detect)
+ * @param {string} ipAddress - IP address to check
  */
-export async function checkExistingSession(roomId, ipAddress = null) {
-    // Skip Sybil check in dev mode
-    if (import.meta.env.DEV || window.location.hostname === 'localhost') {
-        return false
-    }
-
-    const ip = ipAddress || await getClientIP()
-
+export async function checkExistingSession(roomId, ipAddress) {
     const { data, error } = await supabase
         .from('active_sessions')
         .select('*')
         .eq('room_id', roomId)
-        .eq('ip_address', ip)
+        .eq('ip_address', ipAddress)
+        .single()
 
     if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
         console.error('Failed to check existing session:', error)
-        return false // Fail open to not block legitimate users
+        throw error
     }
 
-    return data && data.length > 0
+    return data !== null
 }
 
 /**
  * Create an active session when a player joins a room
  * @param {string} walletAddress - Player's wallet address
  * @param {string} roomId - Room identifier
+ * @param {string} ipAddress - Player's IP address
  */
-export async function createSession(walletAddress, roomId) {
-    const ipAddress = await getClientIP()
-
+export async function createSession(walletAddress, roomId, ipAddress) {
     const { data, error } = await supabase
         .from('active_sessions')
         .insert({

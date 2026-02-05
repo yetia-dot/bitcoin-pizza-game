@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { supabase } from './supabase';
+import { supabase, registerPlayer, removeSession } from './supabase';
 import PizzaABI from './abis/PizzaLogic.json';
 import PizzaCoinABI from './abis/PizzaCoin.json';
 import { burnerManager } from './utils/BurnerWallet';
@@ -8,6 +8,7 @@ import { Registration } from './components/Registration';
 import { Lobby } from './components/Lobby';
 import SplashScreen from './components/SplashScreen';
 import LoadingScreen from './components/LoadingScreen';
+import MissionBriefing from './components/MissionBriefing';
 import './App.css';
 
 const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
@@ -24,6 +25,7 @@ function App() {
   const [pzzaBalance, setPzzaBalance] = useState("0");
   const [balance, setBalance] = useState("0");
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showBriefing, setShowBriefing] = useState(false);
 
   // 1. Initialize Identity & Connection
   useEffect(() => {
@@ -145,11 +147,25 @@ function App() {
     setIsRegistering(true);
     try {
       console.log("Registering as:", username);
+
+      // Step 1: Register on blockchain (mints 10k $PZZA)
       const tx = await contract.registerChef(username);
       await tx.wait();
+      console.log("✅ Blockchain registration complete");
+
+      // Step 2: Sync to Supabase for real-time UX
+      try {
+        await registerPlayer(burnerWallet.address, username);
+        console.log("✅ Supabase sync complete");
+      } catch (supabaseError) {
+        console.warn("⚠️  Supabase sync failed (non-critical):", supabaseError);
+        // Don't block registration if Supabase fails - blockchain is source of truth
+      }
+
       window.location.reload();
     } catch (err) {
       console.error("Registration failed:", err);
+      alert("Registration failed. Please try again.");
     } finally {
       setIsRegistering(false);
     }
@@ -160,7 +176,15 @@ function App() {
     setActiveRoomId(roomId);
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
+    if (activeRoomId && burnerWallet) {
+      try {
+        await removeSession(burnerWallet.address, activeRoomId);
+        console.log("✅ Session cleaned up");
+      } catch (error) {
+        console.warn("Failed to clean up session:", error);
+      }
+    }
     setActiveRoomId(null);
   };
 
@@ -187,11 +211,11 @@ function App() {
         <Registration onRegister={handleRegister} isRegistering={isRegistering} />
         <div style={{ textAlign: 'center', marginTop: '30px' }}>
           <p style={{ color: parseFloat(balance) > 0 ? '#0f0' : '#f00', marginBottom: '10px' }}>
-            ETH: {parseFloat(balance).toFixed(4)}
+            GAS RESERVES: {parseFloat(balance).toFixed(4)} ETH
           </p>
           <button onClick={dripFaucet} disabled={parseFloat(balance) > 0.5} style={{
             background: '#222', color: '#0f0', border: '1px solid #0f0', padding: '10px 20px', cursor: 'pointer', opacity: parseFloat(balance) > 0.5 ? 0.5 : 1
-          }}>DEV FAUCET</button>
+          }}>REQUEST GAS SUBSIDY</button>
         </div>
       </>
     );
@@ -199,34 +223,40 @@ function App() {
 
   return (
     <div className="container">
-      <h1>🍕 Anonymous Pizza Game</h1>
+      {/* HEADER */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h1>🍕 FRANCHISE WARS</h1>
+        <button onClick={() => setShowBriefing(true)} style={{ background: 'transparent', border: '1px solid #0f0', color: '#0f0', cursor: 'pointer', padding: '5px 10px' }}>
+          MISSION INFO
+        </button>
+      </div>
 
       {/* HUD */}
       <div className="dashboard">
         <div className="stat-box">
-          <p className="label">IDENTITY</p>
+          <p className="label">AGENT IDENTITY</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <p className="value" title={burnerWallet?.address}>
-              {burnerWallet?.address.substring(0, 10)}...
+              {burnerWallet?.address?.substring(0, 10)}...
             </p>
             <button className="btn-small" onClick={() => { navigator.clipboard.writeText(burnerWallet?.address); alert("Copied!"); }}>COPY</button>
           </div>
           <p style={{ fontSize: '10px', color: '#555', marginTop: '5px' }}>
-            GAS: {parseFloat(balance).toFixed(4)}
+            FUEL: {parseFloat(balance).toFixed(4)} ETH
           </p>
         </div>
 
         <div className="stat-box" style={{ marginLeft: '20px', borderColor: '#FFD700' }}>
-          <p className="label" style={{ color: '#FFD700' }}>PZZA STASH</p>
+          <p className="label" style={{ color: '#FFD700' }}>WAR CHEST</p>
           <p className="value" style={{ color: '#FFD700', fontSize: '24px' }}>
-            {parseInt(pzzaBalance).toLocaleString()}
+            {parseInt(pzzaBalance).toLocaleString()} $PZZA
           </p>
         </div>
 
         <div className="stat-box" style={{ marginLeft: '20px' }}>
           <p className="label">STATUS</p>
           <p className="value" style={{ color: '#4CAF50' }}>
-            {activeRoomId ? `IN: ${activeRoomId}` : "LOBBY"}
+            {activeRoomId ? `INFILTRATING: ${activeRoomId}` : "LOBBY"}
           </p>
         </div>
       </div>
@@ -240,7 +270,7 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
               <h2>PARLOR: {activeRoomId}</h2>
               <button onClick={handleLeaveRoom} style={{ background: '#333', color: '#fff', border: '1px solid #fff', cursor: 'pointer', padding: '5px 10px' }}>
-                EXIT TO LOBBY
+                RETREAT TO LOBBY
               </button>
             </div>
 
@@ -251,7 +281,7 @@ function App() {
                 padding: '50px',
                 border: '2px dashed #444'
               }}>
-                <h3>GAME GRID FOR {activeRoomId} GOES HERE</h3>
+                <h3>TARGET GRID FOR {activeRoomId}</h3>
                 <p>Grid Size: Dynamic based on Level</p>
                 <p>(Phase 3 Implementation)</p>
               </div>
@@ -259,6 +289,8 @@ function App() {
           </div>
         )}
       </div>
+
+      {showBriefing && <MissionBriefing onClose={() => setShowBriefing(false)} />}
     </div>
   );
 }

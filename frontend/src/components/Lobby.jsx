@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getAllRooms, subscribeToRooms, checkExistingSession, createSession } from '../supabase';
 import './Lobby.css';
 
 export function Lobby({ contract, onJoinRoom }) {
@@ -9,12 +10,45 @@ export function Lobby({ contract, onJoinRoom }) {
     const [isCreating, setIsCreating] = useState(false);
     const [joinPassword, setJoinPassword] = useState("");
     const [selectedRoom, setSelectedRoom] = useState(null);
+    const [useSupabase, setUseSupabase] = useState(true); // Toggle for fallback
 
+    // Fetch rooms from Supabase (real-time) or blockchain (fallback)
     useEffect(() => {
-        fetchRooms();
-    }, [contract]);
+        if (useSupabase) {
+            fetchRoomsFromSupabase();
 
-    const fetchRooms = async () => {
+            // Subscribe to real-time updates
+            const subscription = subscribeToRooms((payload) => {
+                console.log('🔄 Room update detected:', payload);
+                fetchRoomsFromSupabase(); // Refresh on any change
+            });
+
+            return () => {
+                subscription.unsubscribe();
+            };
+        } else {
+            fetchRoomsFromBlockchain();
+        }
+    }, [contract, useSupabase]);
+
+    const fetchRoomsFromSupabase = async () => {
+        try {
+            const supabaseRooms = await getAllRooms(true);
+            setRooms(supabaseRooms.map(r => ({
+                id: r.room_id,
+                creator: r.creator_address,
+                level: r.level,
+                totalSlices: r.total_slices,
+                isPrivate: r.is_private,
+                currentKing: r.current_king
+            })));
+        } catch (error) {
+            console.error('Failed to fetch from Supabase, falling back to blockchain:', error);
+            setUseSupabase(false); // Fallback to blockchain
+        }
+    };
+
+    const fetchRoomsFromBlockchain = async () => {
         if (!contract) return;
         try {
             const roomIds = await contract.getAllRooms();
@@ -22,10 +56,11 @@ export function Lobby({ contract, onJoinRoom }) {
 
             for (let id of roomIds) {
                 const r = await contract.rooms(id);
-                // r is an array-like struct: [name, creator, level, totalSlices, isPrivate, keyHash]
-                // Index 4 should be isPrivate
                 loadedRooms.push({
                     id: id,
+                    creator: r[1],
+                    level: r[2],
+                    totalSlices: r[3],
                     isPrivate: r[4]
                 });
             }
@@ -38,55 +73,64 @@ export function Lobby({ contract, onJoinRoom }) {
     const handleCreate = async () => {
         if (!newRoomName) return;
         if (isPrivate && !password) {
-            alert("Private rooms need a password!");
+            alert("Private nodes require an ACCESS KEY!");
             return;
         }
 
         setIsCreating(true);
         try {
-            console.log("Creating room:", newRoomName, isPrivate);
-            // createRoom(name, isPrivate, password)
+            console.log("Deploying node:", newRoomName, isPrivate);
             const tx = await contract.createRoom(newRoomName, isPrivate, isPrivate ? password : "");
             await tx.wait();
+
+            console.log("✅ Room created on blockchain");
+            // Event listener will sync to Supabase automatically
+
             setNewRoomName("");
             setPassword("");
             setIsPrivate(false);
-            fetchRooms();
+
+            // Refresh rooms (Supabase subscription should handle this, but force refresh for immediate feedback)
+            if (useSupabase) {
+                setTimeout(fetchRoomsFromSupabase, 1000);
+            } else {
+                fetchRoomsFromBlockchain();
+            }
         } catch (err) {
-            console.error("Failed to create room:", err);
-            alert("Failed to create room. Name taken?");
+            console.error("Failed to deploy node:", err);
+            alert("Failed to deploy node. Identifier taken?");
         } finally {
             setIsCreating(false);
         }
     };
 
     const handleJoinAttempt = async (room) => {
+        // Check for Sybil attack (same IP already in room)
+        if (useSupabase) {
+            try {
+                const hasExistingSession = await checkExistingSession(room.id);
+                if (hasExistingSession) {
+                    alert("⚠️  SECURITY ALERT: Another agent from your network is already infiltrating this parlor!");
+                    return;
+                }
+            } catch (error) {
+                console.warn("Sybil check failed, proceeding anyway:", error);
+            }
+        }
+
         if (room.isPrivate) {
             setSelectedRoom(room.id);
             setJoinPassword("");
         } else {
-            onJoinRoom(room.id);
+            joinRoom(room.id);
         }
     };
 
     const confirmJoinPrivate = async () => {
-        // Verify password locally/on-chain before joining?
-        // Actually, we can just check `verifyRoomPassword` on contract to be nice, 
-        // or just pass it to the parent.
-        // The parent `onJoinRoom` just sets the Active ID. 
-        // The `buySlice` later will fail if we don't have the password?
-        // Wait, `buySlice` doesn't take a password. 
-        // Current Contract: `verifyRoomPassword` exists. `buySlice` does NOT check password.
-        // This means the "Security" is purely front-end gating for now (as per MVP).
-        // Or did I miss protecting `buySlice`? 
-        // *Self-Correction*: I did NOT protect `buySlice` in the contract.
-        // "Retro-Cipherpunk" security: User must verify key to SEE the grid.
-        // Let's verify on-chain before letting them "Enter".
-
         try {
             const isValid = await contract.verifyRoomPassword(selectedRoom, joinPassword);
             if (isValid) {
-                onJoinRoom(selectedRoom);
+                joinRoom(selectedRoom);
                 setSelectedRoom(null);
             } else {
                 alert("ACCESS DENIED: INVALID KEYCODE");
@@ -97,87 +141,148 @@ export function Lobby({ contract, onJoinRoom }) {
         }
     };
 
+    const joinRoom = async (roomId) => {
+        // Create session in Supabase
+        if (useSupabase) {
+            try {
+                const walletAddress = window.ethereum?.selectedAddress || 'unknown';
+                await createSession(walletAddress, roomId);
+                console.log("✅ Session created in Supabase");
+            } catch (error) {
+                console.warn("Failed to create session:", error);
+            }
+        }
+
+        onJoinRoom(roomId);
+    };
+
     return (
         <div className="lobby-container">
-            <div className="lobby-header">
-                <h2>PIZZA PARLORS</h2>
+            {/* SECTION A: FRANCHISE OFFICE (CREATE) */}
+            <div className="lobby-section create-section" style={{ borderBottom: '2px dashed #444', paddingBottom: '30px', marginBottom: '30px' }}>
+                <h2 style={{ color: '#FFD700', textShadow: '0 0 10px #FFD700' }}>🏢 THE FRANCHISE OFFICE</h2>
+                <p style={{ color: '#aaa', fontSize: '14px', marginBottom: '20px' }}>
+                    Become an <span style={{ color: '#fff', fontWeight: 'bold' }}>OWNER</span>. Deploy a node. Set the rules.
+                    <br />
+                    Owners control the Invite Key and watch the takeover happen.
+                </p>
 
-                <div className="create-section">
-                    <div className="create-row">
+                <div className="create-row" style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
                         <input
-                            className="lobby-input"
+                            className="lobby-input scanline-text"
                             type="text"
-                            placeholder="NEW PARLOR NAME"
+                            placeholder="PARLOR NAME (e.g. THE GENESIS CRUST)"
                             value={newRoomName}
                             onChange={(e) => setNewRoomName(e.target.value.toUpperCase())}
-                            maxLength={12}
+                            maxLength={20}
+                            style={{ width: '100%', marginBottom: '10px' }}
                         />
-                        <button className="lobby-btn" onClick={handleCreate} disabled={isCreating || !newRoomName}>
-                            {isCreating ? "OPENING..." : "OPEN PARLOR"}
-                        </button>
+
+                        <div className="create-options">
+                            <label className="privacy-label" style={{ color: isPrivate ? '#ff00ff' : '#888', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                                <input
+                                    className="privacy-input"
+                                    type="checkbox"
+                                    checked={isPrivate}
+                                    onChange={(e) => setIsPrivate(e.target.checked)}
+                                />
+                                {isPrivate ? "🔒 PRIVATE KEY-LOCKED" : "🔓 PUBLIC ACCESS"}
+                            </label>
+                        </div>
                     </div>
 
-                    <div className="create-options">
-                        <label className="privacy-label" style={{ color: isPrivate ? '#ff00ff' : '#888' }}>
-                            <input
-                                className="privacy-input"
-                                type="checkbox"
-                                checked={isPrivate}
-                                onChange={(e) => setIsPrivate(e.target.checked)}
-                            />
-                            PRIVATE (REQ. KEY)
-                        </label>
+                    {isPrivate && (
+                        <input
+                            className="lobby-input scanline-text"
+                            type="password"
+                            placeholder="SET ACCESS KEY"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            style={{ border: '1px solid #ff00ff', color: '#ff00ff', flex: 1 }}
+                        />
+                    )}
 
-                        {isPrivate && (
-                            <input
-                                className="lobby-input"
-                                type="password"
-                                placeholder="SET ACCESS KEY"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                style={{ border: '1px solid #ff00ff', color: '#ff00ff' }}
-                            />
-                        )}
-                    </div>
+                    <button className="lobby-btn" onClick={handleCreate} disabled={isCreating || !newRoomName}
+                        style={{ background: '#FFD700', color: '#000', border: 'none', fontWeight: 'bold', padding: '15px 30px' }}>
+                        {isCreating ? "DEPLOYING NODE..." : "FOUND NEW PARLOR"}
+                    </button>
                 </div>
             </div>
 
-            <div className="room-list">
-                {rooms.length === 0 ? (
-                    <p className="no-rooms">NO PARLORS DETECTED. SCANNING...</p>
-                ) : (
-                    rooms.map((room) => (
-                        <div key={room.id} className="room-card" style={{ borderColor: room.isPrivate ? '#ff00ff' : '#0f0' }}>
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <span className="room-name" style={{ color: room.isPrivate ? '#ff00ff' : '#0f0' }}>
-                                    {room.id}
-                                </span>
-                                {room.isPrivate && <span>🔒</span>}
+            {/* SECTION B: ACTIVE PARLORS (LIST) */}
+            <div className="lobby-section list-section">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h2 style={{ color: '#0f0', textShadow: '0 0 10px #0f0', margin: 0 }}>📡 ACTIVE PARLORS</h2>
+                    <div style={{ fontSize: '10px', color: '#555' }}>
+                        {useSupabase ? '🟢 REAL-TIME MODE' : '🔴 BLOCKCHAIN FALLBACK'}
+                    </div>
+                </div>
+                <div className="room-list">
+                    {rooms.length === 0 ? (
+                        <p className="no-rooms blinking-text">SCANNING NETWORK FOR ACTIVE NODES...</p>
+                    ) : (
+                        rooms.map((room) => (
+                            <div key={room.id} className="room-card" style={{
+                                borderColor: room.isPrivate ? '#ff00ff' : '#0f0',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '15px',
+                                background: '#111',
+                                marginBottom: '10px',
+                                borderLeft: `5px solid ${room.isPrivate ? '#ff00ff' : '#0f0'}`
+                            }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span className="room-name" style={{ color: '#fff', fontSize: '18px', fontWeight: 'bold' }}>
+                                            {room.id}
+                                        </span>
+                                        {room.isPrivate ? <span title="Locked">🔒</span> : <span title="Open 24/7" style={{ fontSize: '12px', background: '#0f0', color: '#000', padding: '2px 5px' }}>OPEN 24/7</span>}
+                                        {room.currentKing && <span title="Current King" style={{ fontSize: '12px' }}>👑</span>}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#888', marginTop: '5px' }}>
+                                        OWNER: <span style={{ color: '#bbb' }}>{room.creator.substring(0, 6)}...{room.creator.substring(38)}</span>
+                                        <span style={{ margin: '0 10px' }}>|</span>
+                                        STATUS: <span style={{ color: '#bbb' }}>LVL {Number(room.level)}</span>
+                                        <span style={{ margin: '0 10px' }}>|</span>
+                                        POPULATION: <span style={{ color: '#bbb' }}>{Number(room.totalSlices)} SLICES</span>
+                                    </div>
+                                </div>
+
+                                <button className="join-btn" onClick={() => handleJoinAttempt(room)}
+                                    style={{
+                                        borderColor: room.isPrivate ? '#ff00ff' : '#0f0',
+                                        color: room.isPrivate ? '#ff00ff' : '#0f0',
+                                        background: 'transparent',
+                                        border: '1px solid',
+                                        padding: '10px 20px',
+                                        cursor: 'pointer'
+                                    }}>
+                                    {room.isPrivate ? "INPUT KEY" : "ENTER PARLOR"}
+                                </button>
                             </div>
-                            <button className="join-btn" onClick={() => handleJoinAttempt(room)}
-                                style={{ borderColor: room.isPrivate ? '#ff00ff' : '#0f0', color: room.isPrivate ? '#ff00ff' : '#0f0' }}>
-                                {room.isPrivate ? "UNLOCK" : "ENTER"}
-                            </button>
-                        </div>
-                    ))
-                )}
+                        ))
+                    )}
+                </div>
             </div>
 
             {selectedRoom && (
                 <div className="modal-overlay">
-                    <div className="modal">
-                        <h3>ENTER KEYCODE FOR {selectedRoom}</h3>
+                    <div className="modal" style={{ border: '2px solid #ff00ff', background: '#000', padding: '30px' }}>
+                        <h3 style={{ color: '#ff00ff' }}>🔐 ENCRYPTED PARLOR DETECTED</h3>
+                        <p style={{ color: '#fff', marginBottom: '20px' }}>Target: {selectedRoom}</p>
                         <input
                             className="lobby-input"
                             type="password"
                             value={joinPassword}
                             onChange={(e) => setJoinPassword(e.target.value)}
-                            placeholder="ACCESS KEY"
-                            style={{ marginBottom: '20px', width: '100%' }}
+                            placeholder="ENTER ACCESS KEY"
+                            style={{ marginBottom: '20px', width: '100%', borderColor: '#ff00ff', color: '#ff00ff' }}
                         />
-                        <div className="modal-actions">
-                            <button className="lobby-btn" onClick={confirmJoinPrivate}>DECRYPT</button>
-                            <button className="lobby-btn" onClick={() => setSelectedRoom(null)} style={{ borderColor: '#f00', color: '#f00' }}>CANCEL</button>
+                        <div className="modal-actions" style={{ display: 'flex', gap: '10px' }}>
+                            <button className="lobby-btn" onClick={confirmJoinPrivate} style={{ flex: 1, background: '#ff00ff', color: '#000' }}>DECRYPT & ENTER</button>
+                            <button className="lobby-btn" onClick={() => setSelectedRoom(null)} style={{ flex: 1, borderColor: '#f00', color: '#f00' }}>ABORT</button>
                         </div>
                     </div>
                 </div>
