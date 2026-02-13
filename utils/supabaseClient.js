@@ -1,4 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
+import dotenv from 'dotenv'
+
+dotenv.config()
 
 const supabaseUrl = process.env.SUPABASE_URL
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
@@ -11,15 +14,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 /**
  * Register a new player in Supabase after on-chain registration
- * @param {string} walletAddress - Ethereum wallet address
- * @param {string} username - Player's chosen username
- * @param {string} ipAddress - IP address for Sybil detection
  */
-export async function registerPlayer(walletAddress, username, ipAddress) {
+export async function registerPlayer(walletAddress, username, ipAddress = 'unknown') {
     const { data, error } = await supabase
         .from('players')
         .upsert({
-            wallet_address: walletAddress,
+            wallet_address: walletAddress.toLowerCase(),
             username: username,
             last_ip: ipAddress,
             last_seen: new Date().toISOString()
@@ -30,7 +30,7 @@ export async function registerPlayer(walletAddress, username, ipAddress) {
         .single()
 
     if (error) {
-        console.error('Failed to register player in Supabase:', error)
+        console.error('❌ Failed to register player in Supabase:', error.message)
         throw error
     }
 
@@ -38,26 +38,26 @@ export async function registerPlayer(walletAddress, username, ipAddress) {
 }
 
 /**
- * Create a new room in Supabase after on-chain room creation
- * @param {string} roomId - Unique room identifier
- * @param {string} creatorAddress - Wallet address of room creator
- * @param {boolean} isPrivate - Whether the room is private
+ * Create/Update a parlor (room) in Supabase
  */
 export async function createRoom(roomId, creatorAddress, isPrivate = false) {
     const { data, error } = await supabase
         .from('rooms')
-        .insert({
+        .upsert({
             room_id: roomId,
-            creator_address: creatorAddress,
+            creator_address: creatorAddress.toLowerCase(),
             is_private: isPrivate,
             level: 1,
-            total_slices: 0
+            total_slices: 0,
+            updated_at: new Date().toISOString()
+        }, {
+            onConflict: 'room_id'
         })
         .select()
         .single()
 
     if (error) {
-        console.error('Failed to create room in Supabase:', error)
+        console.error('❌ Failed to create room in Supabase:', error.message)
         throw error
     }
 
@@ -65,15 +65,34 @@ export async function createRoom(roomId, creatorAddress, isPrivate = false) {
 }
 
 /**
- * Update room king after a hostile takeover
- * @param {string} roomId - Room identifier
- * @param {string} newKingAddress - Wallet address of new king
+ * Sync individual slice ownership (Crucial for Real-Time Grid UI)
+ */
+export async function syncSlice(roomId, sliceId, ownerAddress) {
+    const { data, error } = await supabase
+        .from('slices')
+        .upsert({
+            room_id: roomId,
+            slice_id: Number(sliceId),
+            owner_address: ownerAddress.toLowerCase(),
+            updated_at: new Date().toISOString()
+        }, {
+            onConflict: 'room_id,slice_id'
+        })
+
+    if (error) {
+        console.error('❌ Failed to sync slice in Supabase:', error.message)
+    }
+    return data
+}
+
+/**
+ * Update room king after a successful 51% takeover
  */
 export async function updateRoomKing(roomId, newKingAddress) {
     const { data, error } = await supabase
         .from('rooms')
         .update({
-            current_king: newKingAddress,
+            current_king: newKingAddress.toLowerCase(),
             updated_at: new Date().toISOString()
         })
         .eq('room_id', roomId)
@@ -81,7 +100,7 @@ export async function updateRoomKing(roomId, newKingAddress) {
         .single()
 
     if (error) {
-        console.error('Failed to update room king:', error)
+        console.error('❌ Failed to update room king:', error.message)
         throw error
     }
 
@@ -89,8 +108,7 @@ export async function updateRoomKing(roomId, newKingAddress) {
 }
 
 /**
- * Increment room slice count after a slice purchase
- * @param {string} roomId - Room identifier
+ * Increment room slice count (Uses atomic RPC)
  */
 export async function incrementRoomSlices(roomId) {
     const { data, error } = await supabase.rpc('increment_room_slices', {
@@ -98,8 +116,7 @@ export async function incrementRoomSlices(roomId) {
     })
 
     if (error) {
-        console.error('Failed to increment room slices:', error)
-        // Fallback to manual increment if RPC function doesn't exist
+        console.warn('⚠️ RPC Failed, falling back to manual increment...')
         const { data: room } = await supabase
             .from('rooms')
             .select('total_slices')
@@ -110,7 +127,7 @@ export async function incrementRoomSlices(roomId) {
             await supabase
                 .from('rooms')
                 .update({
-                    total_slices: room.total_slices + 1,
+                    total_slices: (room.total_slices || 0) + 1,
                     updated_at: new Date().toISOString()
                 })
                 .eq('room_id', roomId)
@@ -121,8 +138,7 @@ export async function incrementRoomSlices(roomId) {
 }
 
 /**
- * Get all active rooms (for lobby display)
- * @param {boolean} includePrivate - Whether to include private rooms
+ * Get all active rooms (Lobby Display)
  */
 export async function getAllRooms(includePrivate = true) {
     let query = supabase
@@ -135,19 +151,12 @@ export async function getAllRooms(includePrivate = true) {
     }
 
     const { data, error } = await query
-
-    if (error) {
-        console.error('Failed to fetch rooms:', error)
-        throw error
-    }
-
+    if (error) throw error
     return data
 }
 
 /**
- * Check if an IP address already has an active session in a room (Sybil prevention)
- * @param {string} roomId - Room identifier
- * @param {string} ipAddress - IP address to check
+ * Check if an IP address has an active session (Sybil Prevention)
  */
 export async function checkExistingSession(roomId, ipAddress) {
     const { data, error } = await supabase
@@ -155,70 +164,49 @@ export async function checkExistingSession(roomId, ipAddress) {
         .select('*')
         .eq('room_id', roomId)
         .eq('ip_address', ipAddress)
-        .single()
+        .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-        console.error('Failed to check existing session:', error)
-        throw error
-    }
-
+    if (error) throw error
     return data !== null
 }
 
 /**
- * Create an active session when a player joins a room
- * @param {string} walletAddress - Player's wallet address
- * @param {string} roomId - Room identifier
- * @param {string} ipAddress - Player's IP address
+ * Create active session (Joining a room)
  */
 export async function createSession(walletAddress, roomId, ipAddress) {
     const { data, error } = await supabase
         .from('active_sessions')
         .insert({
-            wallet_address: walletAddress,
+            wallet_address: walletAddress.toLowerCase(),
             room_id: roomId,
             ip_address: ipAddress
         })
         .select()
         .single()
 
-    if (error) {
-        console.error('Failed to create session:', error)
-        throw error
-    }
-
+    if (error) throw error
     return data
 }
 
 /**
- * Remove a session when a player leaves a room
- * @param {string} walletAddress - Player's wallet address
- * @param {string} roomId - Room identifier
+ * Remove session (Leaving a room)
  */
 export async function removeSession(walletAddress, roomId) {
     const { error } = await supabase
         .from('active_sessions')
         .delete()
-        .eq('wallet_address', walletAddress)
+        .eq('wallet_address', walletAddress.toLowerCase())
         .eq('room_id', roomId)
 
-    if (error) {
-        console.error('Failed to remove session:', error)
-        throw error
-    }
+    if (error) throw error
 }
 
 /**
- * Update player's last seen timestamp
- * @param {string} walletAddress - Player's wallet address
+ * Keepalive / Activity Update
  */
 export async function updatePlayerActivity(walletAddress) {
-    const { error } = await supabase
+    await supabase
         .from('players')
         .update({ last_seen: new Date().toISOString() })
-        .eq('wallet_address', walletAddress)
-
-    if (error) {
-        console.error('Failed to update player activity:', error)
-    }
+        .eq('wallet_address', walletAddress.toLowerCase())
 }

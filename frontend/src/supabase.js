@@ -187,3 +187,48 @@ export async function updatePlayerActivity(walletAddress) {
         console.error('Failed to update player activity:', error)
     }
 }
+
+// ============================================================================
+// SLICE MANAGEMENT (For Real-Time Grid)
+// ============================================================================
+
+/**
+ * Get all slices for a specific room
+ * @param {string} roomId - Room identifier
+ * @returns {Array} Array of slice objects with ownership data
+ */
+export async function getRoomSlices(roomId) {
+    const { data, error } = await supabase
+        .from('slices')
+        .select('*')
+        .eq('room_id', roomId)
+        .order('slice_id', { ascending: true })
+
+    if (error) {
+        console.error('Failed to fetch room slices:', error)
+        throw error
+    }
+
+    return data || []
+}
+
+/**
+ * Subscribe to real-time slice updates for a specific room
+ * @param {string} roomId - Room identifier
+ * @param {Function} callback - Function to call when slices change
+ * @returns {Object} Subscription object (call .unsubscribe() to stop)
+ */
+export function subscribeToSlices(roomId, callback) {
+    return supabase
+        .channel(`slices-${roomId}`)
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'slices',
+                filter: `room_id=eq.${roomId}`
+            },
+            callback
+        )
+        .subscribe()
+}

@@ -5,9 +5,12 @@ import {
     registerPlayer,
     createRoom,
     updateRoomKing,
-    incrementRoomSlices
+    incrementRoomSlices,
+    syncSlice
 } from './supabaseClient.js'
-import PizzaABI from '../frontend/src/abis/PizzaLogic.json' assert { type: 'json' }
+import { createRequire } from 'module'
+const require = createRequire(import.meta.url)
+const PizzaABI = require('../frontend/src/abis/PizzaLogic.json')
 
 dotenv.config()
 
@@ -15,7 +18,7 @@ dotenv.config()
 // CONFIGURATION
 // ============================================================================
 
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8545"
 
 // ============================================================================
@@ -43,7 +46,7 @@ class BlockchainEventListener {
             console.log(`📜 Contract loaded at ${CONTRACT_ADDRESS}`)
 
             // Test Supabase connection
-            const { error } = await supabase.from('players').select('count').limit(1)
+            const { error } = await supabase.from('players').select('count', { count: 'exact', head: true })
             if (error) throw error
             console.log('✅ Connected to Supabase')
 
@@ -61,193 +64,132 @@ class BlockchainEventListener {
         }
 
         this.isRunning = true
-        console.log('👂 Starting event listeners...\n')
+        console.log('👂 Starting Real-Time Syndicate Listeners...\n')
 
-        // Listen for player registrations
-        this.contract.on('*', async (event) => {
+        // 1. Listen for Worker Registrations (Updated to use the new event)
+        this.contract.on('WorkerRegistered', async (workerAddress, username) => {
+            console.log(`👤 NEW WORKER ENROLLED: ${username} (${workerAddress})`)
             try {
-                // Filter for registerChef transactions
-                if (event.fragment && event.fragment.name === 'registerChef') {
-                    await this.handleRegistration(event)
-                }
-            } catch (error) {
-                console.error('Error processing event:', error)
+                // IP will be 'unknown' from event listener - frontend handles actual IP
+                await registerPlayer(workerAddress, username)
+                console.log(`   ✅ Synced to Supabase Profile`)
+            } catch (err) {
+                console.error(`   ❌ Registration sync failed:`, err.message)
             }
         })
 
-        // Listen for RoomCreated events
-        this.contract.on('RoomCreated', async (roomId, name, creator, event) => {
-            await this.handleRoomCreated(roomId, name, creator, event)
+        // 2. Listen for Parlor (Room) Creations
+        this.contract.on('RoomCreated', async (roomId, name, creator) => {
+            console.log(`🏠 NEW PARLOR NODE: "${name}" [ID: ${roomId}] by ${creator}`)
+            try {
+                const room = await this.contract.rooms(roomId)
+                await createRoom(roomId, creator, room.isPrivate)
+                console.log(`   ✅ Synced to Supabase Index`)
+            } catch (err) {
+                console.error(`   ❌ Room sync failed:`, err.message)
+            }
         })
 
-        // Listen for NewKing events (hostile takeovers)
-        this.contract.on('NewKing', async (roomId, newKing, event) => {
-            await this.handleNewKing(roomId, newKing, event)
+        // 3. Listen for 51% Attack Success (NewKing)
+        this.contract.on('NewKing', async (roomId, newKing) => {
+            console.log(`🚨 51% ATTACK SUCCESS: ${newKing} has seized control of ${roomId}!`)
+            try {
+                await updateRoomKing(roomId, newKing)
+                console.log(`   ✅ King status updated in Supabase`)
+            } catch (err) {
+                console.error(`   ❌ King update failed:`, err.message)
+            }
         })
 
-        // Listen for SliceBought events
-        this.contract.on('SliceBought', async (roomId, sliceId, buyer, event) => {
-            await this.handleSliceBought(roomId, sliceId, buyer, event)
+        // 4. Listen for Slice Purchases (FIXED: Now syncs individual ownership)
+        this.contract.on('SliceBought', async (roomId, sliceId, buyer) => {
+            console.log(`🍕 SLICE SOLD: #${sliceId} in "${roomId}" to ${buyer}`)
+            try {
+                // Fix Issue #1: Sync the specific map coordinate
+                await syncSlice(roomId, sliceId, buyer)
+
+                // Keep the total count updated for the lobby view
+                await incrementRoomSlices(roomId)
+
+                console.log(`   ✅ Grid Map & Count updated in Supabase`)
+            } catch (err) {
+                console.error(`   ❌ Slice sync failed:`, err.message)
+            }
         })
 
-        console.log('✅ All event listeners active\n')
-        console.log('📊 Monitoring blockchain for events...\n')
-    }
-
-    async handleRegistration(event) {
-        try {
-            const address = event.args[0] // msg.sender from registerChef
-
-            // Get username from contract
-            const username = await this.contract.chefNames(address)
-
-            console.log(`👤 NEW REGISTRATION: ${username} (${address})`)
-
-            // Sync to Supabase
-            await registerPlayer(address, username, '0.0.0.0') // Backend doesn't have IP
-
-            console.log(`   ✅ Synced to Supabase\n`)
-        } catch (error) {
-            console.error('   ❌ Failed to handle registration:', error.message)
-        }
-    }
-
-    async handleRoomCreated(roomId, name, creator, event) {
-        try {
-            console.log(`🏠 NEW ROOM: "${roomId}" by ${creator}`)
-
-            // Get room details from contract
-            const room = await this.contract.rooms(roomId)
-            const isPrivate = room.isPrivate
-
-            // Sync to Supabase
-            await createRoom(roomId, creator, isPrivate)
-
-            console.log(`   ✅ Synced to Supabase (Private: ${isPrivate})\n`)
-        } catch (error) {
-            console.error('   ❌ Failed to handle room creation:', error.message)
-        }
-    }
-
-    async handleNewKing(roomId, newKing, event) {
-        try {
-            console.log(`👑 HOSTILE TAKEOVER: ${newKing} seized "${roomId}"`)
-
-            // Update room king in Supabase
-            await updateRoomKing(roomId, newKing)
-
-            console.log(`   ✅ Synced to Supabase\n`)
-        } catch (error) {
-            console.error('   ❌ Failed to handle king update:', error.message)
-        }
-    }
-
-    async handleSliceBought(roomId, sliceId, buyer, event) {
-        try {
-            console.log(`🍕 SLICE BOUGHT: Slice #${sliceId} in "${roomId}" by ${buyer}`)
-
-            // Increment room slice count in Supabase
-            await incrementRoomSlices(roomId)
-
-            console.log(`   ✅ Synced to Supabase\n`)
-        } catch (error) {
-            console.error('   ❌ Failed to handle slice purchase:', error.message)
-        }
-    }
-
-    async stopListening() {
-        if (!this.isRunning) return
-
-        console.log('\n🛑 Stopping event listeners...')
-        this.contract.removeAllListeners()
-        this.isRunning = false
-        console.log('✅ Event listeners stopped')
+        console.log('✅ All event listeners active. Monitoring Syndicate activity...\n')
     }
 
     async syncHistoricalData() {
-        console.log('📚 Syncing historical data from blockchain...\n')
+        console.log('📚 Syncing historical records from the blockchain...')
 
         try {
-            // Get all rooms from contract
             const roomIds = await this.contract.getAllRooms()
-            console.log(`Found ${roomIds.length} rooms on-chain`)
+            console.log(`Found ${roomIds.length} parlors on-chain. Verifying Supabase sync...`)
 
             for (const roomId of roomIds) {
                 try {
-                    const room = await this.contract.rooms(roomId)
-
-                    // Check if room exists in Supabase
                     const { data: existingRoom } = await supabase
                         .from('rooms')
                         .select('room_id')
                         .eq('room_id', roomId)
-                        .single()
+                        .maybeSingle()
 
                     if (!existingRoom) {
-                        console.log(`   Syncing room: ${roomId}`)
+                        const room = await this.contract.rooms(roomId)
+                        console.log(`   🔄 Recovering Room: ${roomId}`)
                         await createRoom(roomId, room.creator, room.isPrivate)
 
-                        // Update king if exists
                         const king = await this.contract.roomKings(roomId)
                         if (king !== ethers.ZeroAddress) {
                             await updateRoomKing(roomId, king)
                         }
                     }
                 } catch (error) {
-                    console.error(`   Failed to sync room ${roomId}:`, error.message)
+                    console.error(`   ❌ Failed to sync record for ${roomId}:`, error.message)
                 }
             }
-
-            console.log('\n✅ Historical sync complete\n')
+            console.log('✅ Historical sync complete.\n')
         } catch (error) {
             console.error('❌ Historical sync failed:', error.message)
         }
     }
+
+    async stopListening() {
+        if (!this.isRunning) return
+        console.log('\n🛑 Stopping event listeners...')
+        this.contract.removeAllListeners()
+        this.isRunning = false
+        console.log('✅ Listeners offline.')
+    }
 }
 
 // ============================================================================
-// MAIN EXECUTION
+// SERVICE RUNNER
 // ============================================================================
 
 async function main() {
-    console.log('╔════════════════════════════════════════════════════════╗')
-    console.log('║   PZZA PARTY - Blockchain Event Listener Service      ║')
-    console.log('╚════════════════════════════════════════════════════════╝\n')
+    console.log('------------------------------------------------------------')
+    console.log('PZZA PARTY - HYBRID BLOCKCHAIN/SUPABASE SYNC SERVICE V1.0')
+    console.log('------------------------------------------------------------\n')
 
     const listener = new BlockchainEventListener()
 
-    // Initialize
     const initialized = await listener.initialize()
-    if (!initialized) {
-        console.error('❌ Failed to initialize. Exiting...')
-        process.exit(1)
-    }
+    if (!initialized) process.exit(1)
 
-    // Sync historical data first
+    // Sync state before listening for new events
     await listener.syncHistoricalData()
-
-    // Start listening for new events
     await listener.startListening()
 
-    // Graceful shutdown
+    // Graceful Exit
     process.on('SIGINT', async () => {
-        console.log('\n\n🛑 Received shutdown signal...')
         await listener.stopListening()
         process.exit(0)
     })
-
-    process.on('SIGTERM', async () => {
-        console.log('\n\n🛑 Received shutdown signal...')
-        await listener.stopListening()
-        process.exit(0)
-    })
-
-    // Keep process alive
-    console.log('Press Ctrl+C to stop\n')
 }
 
-// Run the service
 main().catch((error) => {
-    console.error('💥 Fatal error:', error)
+    console.error('💥 Fatal service error:', error)
     process.exit(1)
 })

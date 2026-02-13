@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getAllRooms, subscribeToRooms, checkExistingSession, createSession } from '../supabase';
 import './Lobby.css';
 
-export function Lobby({ contract, onJoinRoom }) {
+export function Lobby({ contract, onJoinRoom, walletAddress }) {
     const [rooms, setRooms] = useState([]);
     const [newRoomName, setNewRoomName] = useState("");
     const [isPrivate, setIsPrivate] = useState(false);
@@ -145,16 +145,15 @@ export function Lobby({ contract, onJoinRoom }) {
         // Create session in Supabase
         if (useSupabase) {
             try {
-                const walletAddress = window.ethereum?.selectedAddress || 'unknown';
-                await createSession(walletAddress, roomId);
-                console.log("✅ Session created in Supabase");
+                await createSession(walletAddress, roomId)
+                console.log("✅ Session created in Supabase")
             } catch (error) {
-                console.warn("Failed to create session:", error);
+                console.warn("Failed to create session:", error)
             }
         }
 
-        onJoinRoom(roomId);
-    };
+        onJoinRoom(roomId)
+    }
 
     return (
         <div className="lobby-container">

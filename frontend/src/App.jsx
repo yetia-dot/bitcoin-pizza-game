@@ -6,12 +6,13 @@ import PizzaCoinABI from './abis/PizzaCoin.json';
 import { burnerManager } from './utils/BurnerWallet';
 import { Registration } from './components/Registration';
 import { Lobby } from './components/Lobby';
+import { GameRoom } from './components/GameRoom';
 import SplashScreen from './components/SplashScreen';
 import LoadingScreen from './components/LoadingScreen';
 import MissionBriefing from './components/MissionBriefing';
 import './App.css';
 
-const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+const CONTRACT_ADDRESS = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9";
 const RPC_URL = "http://127.0.0.1:8545";
 
 function App() {
@@ -154,6 +155,9 @@ function App() {
       console.log("✅ Blockchain registration complete");
 
       // Step 2: Sync to Supabase for real-time UX
+      // NOTE: Event listener will sync this automatically from blockchain event
+      // Commenting out to avoid timeout if Supabase credentials are incomplete
+      /*
       try {
         await registerPlayer(burnerWallet.address, username);
         console.log("✅ Supabase sync complete");
@@ -161,6 +165,7 @@ function App() {
         console.warn("⚠️  Supabase sync failed (non-critical):", supabaseError);
         // Don't block registration if Supabase fails - blockchain is source of truth
       }
+      */
 
       window.location.reload();
     } catch (err) {
@@ -264,29 +269,14 @@ function App() {
       {/* CONTENT AREA */}
       <div className="content-area" style={{ marginTop: '20px' }}>
         {!activeRoomId ? (
-          <Lobby contract={contract} onJoinRoom={handleJoinRoom} />
+          <Lobby contract={contract} onJoinRoom={handleJoinRoom} walletAddress={burnerWallet?.address} />
         ) : (
-          <div className="grid-container">
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <h2>PARLOR: {activeRoomId}</h2>
-              <button onClick={handleLeaveRoom} style={{ background: '#333', color: '#fff', border: '1px solid #fff', cursor: 'pointer', padding: '5px 10px' }}>
-                RETREAT TO LOBBY
-              </button>
-            </div>
-
-            <div className="grid">
-              <div style={{
-                gridColumn: '1 / -1',
-                textAlign: 'center',
-                padding: '50px',
-                border: '2px dashed #444'
-              }}>
-                <h3>TARGET GRID FOR {activeRoomId}</h3>
-                <p>Grid Size: Dynamic based on Level</p>
-                <p>(Phase 3 Implementation)</p>
-              </div>
-            </div>
-          </div>
+          <GameRoom
+            contract={contract}
+            roomId={activeRoomId}
+            walletAddress={burnerWallet?.address}
+            onLeaveRoom={handleLeaveRoom}
+          />
         )}
       </div>
 
