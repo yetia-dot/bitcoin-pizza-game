@@ -76,3 +76,23 @@ CREATE POLICY "Public update access" ON rooms FOR UPDATE USING (true);
 
 -- Public delete access (for session cleanup)
 CREATE POLICY "Public delete access" ON active_sessions FOR DELETE USING (true);
+
+-- ============================================================================
+-- SLICES TABLE
+-- Real-time grid syncing for the UI
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS slices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id TEXT NOT NULL,
+  slice_id INTEGER NOT NULL,
+  owner_address TEXT NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(room_id, slice_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_slices_room ON slices(room_id);
+ALTER TABLE slices ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public read access" ON slices FOR SELECT USING (true);
+CREATE POLICY "Public insert access" ON slices FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public update access" ON slices FOR UPDATE USING (true);

@@ -7,7 +7,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "listener": "node utils/eventListener.js",
-    "dev:listener": "nodemon utils/eventListener.js"
+    "dev:listener": "nodemon utils/eventListener.js",
+    "deploy": "hardhat run scripts/deploy.js --network localhost"
   },
   "keywords": [],
   "author": "",

@@ -11,25 +11,52 @@ export function Lobby({ contract, onJoinRoom, walletAddress }) {
     const [joinPassword, setJoinPassword] = useState("");
     const [selectedRoom, setSelectedRoom] = useState(null);
     const [useSupabase, setUseSupabase] = useState(true); // Toggle for fallback
+    const [createdRoomLink, setCreatedRoomLink] = useState("");
 
     // Fetch rooms from Supabase (real-time) or blockchain (fallback)
     useEffect(() => {
-        if (useSupabase) {
-            fetchRoomsFromSupabase();
+        let subscription;
 
-            // Subscribe to real-time updates
-            const subscription = subscribeToRooms((payload) => {
-                console.log('🔄 Room update detected:', payload);
-                fetchRoomsFromSupabase(); // Refresh on any change
-            });
+        const initRooms = async () => {
+            if (useSupabase) {
+                try {
+                    await fetchRoomsFromSupabase();
 
-            return () => {
-                subscription.unsubscribe();
-            };
-        } else {
-            fetchRoomsFromBlockchain();
-        }
+                    // Only subscribe if fetch succeeded
+                    console.log('📡 Attempting real-time subscription...');
+                    subscription = subscribeToRooms((payload) => {
+                        console.log('🔄 Room update detected:', payload);
+                        fetchRoomsFromSupabase();
+                    });
+                } catch (e) {
+                    console.warn("Lobby: Supabase connection failed during init, staying on Blockchain mode.");
+                    setUseSupabase(false);
+                }
+            } else {
+                fetchRoomsFromBlockchain();
+            }
+        };
+
+        initRooms();
+
+        return () => {
+            if (subscription) subscription.unsubscribe();
+        };
     }, [contract, useSupabase]);
+
+    // Auto-join via URL parameter
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const inviteRoom = params.get('room');
+        if (inviteRoom && rooms.length > 0) {
+            const roomData = rooms.find(r => r.id === inviteRoom);
+            if (roomData) {
+                // Clear the URL to prevent looping
+                window.history.replaceState({}, '', window.location.pathname);
+                handleJoinAttempt(roomData);
+            }
+        }
+    }, [rooms]);
 
     const fetchRoomsFromSupabase = async () => {
         try {
@@ -89,6 +116,9 @@ export function Lobby({ contract, onJoinRoom, walletAddress }) {
             setNewRoomName("");
             setPassword("");
             setIsPrivate(false);
+
+            const link = `${window.location.origin}/?room=${encodeURIComponent(newRoomName)}`;
+            setCreatedRoomLink(link);
 
             // Refresh rooms (Supabase subscription should handle this, but force refresh for immediate feedback)
             if (useSupabase) {
@@ -207,6 +237,26 @@ export function Lobby({ contract, onJoinRoom, walletAddress }) {
                         {isCreating ? "DEPLOYING NODE..." : "FOUND NEW PARLOR"}
                     </button>
                 </div>
+
+                {createdRoomLink && (
+                    <div className="invite-link-container" style={{ marginTop: '20px', padding: '15px', border: '1px dashed #0f0', background: '#001100' }}>
+                        <p style={{ color: '#0f0', margin: '0 0 10px 0', fontWeight: 'bold' }}>📡 NODE DEPLOYED! SHARE THIS SECURE UPLINK:</p>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <input
+                                type="text"
+                                readOnly
+                                value={createdRoomLink}
+                                style={{ flex: 1, padding: '10px', background: '#000', color: '#fff', border: '1px solid #0f0' }}
+                            />
+                            <button
+                                onClick={() => { navigator.clipboard.writeText(createdRoomLink); alert("Link copied to clipboard!"); }}
+                                style={{ background: '#0f0', color: '#000', border: 'none', padding: '0 20px', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                                COPY
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* SECTION B: ACTIVE PARLORS (LIST) */}

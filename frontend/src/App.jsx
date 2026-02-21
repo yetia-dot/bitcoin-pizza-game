@@ -12,7 +12,7 @@ import LoadingScreen from './components/LoadingScreen';
 import MissionBriefing from './components/MissionBriefing';
 import './App.css';
 
-const CONTRACT_ADDRESS = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9";
+const CONTRACT_ADDRESS = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1";
 const RPC_URL = "http://127.0.0.1:8545";
 
 function App() {
@@ -27,6 +27,8 @@ function App() {
   const [balance, setBalance] = useState("0");
   const [isRegistering, setIsRegistering] = useState(false);
   const [showBriefing, setShowBriefing] = useState(false);
+
+  const [isContractMissing, setIsContractMissing] = useState(false);
 
   // 1. Initialize Identity & Connection
   useEffect(() => {
@@ -52,18 +54,29 @@ function App() {
         const pizzaContract = new ethers.Contract(CONTRACT_ADDRESS, PizzaABI.abi, signer);
         setContract(pizzaContract);
 
+        // Check if contract is actually deployed
+        const code = await provider.getCode(CONTRACT_ADDRESS);
+        if (code === "0x" || code === "0x0") {
+          console.warn("CRITICAL: Game contract not found. In your ROOT PROJECT FOLDER, run: 'npx hardhat run scripts/deploy.js --network localhost'");
+          setIsContractMissing(true);
+        } else {
+          setIsContractMissing(false);
+        }
+
         // 3. AUTO-FUND (Books gas for the user transparently)
         if (RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost")) {
           try {
             const bal = await provider.getBalance(wallet.address);
             if (bal < ethers.parseEther("0.05")) {
-              console.log("Creating localized gas subsidy...");
+              console.log("[Identity] Low fuel, requesting subsidy from local node...");
               try {
                 const adminSigner = await provider.getSigner(0);
-                await adminSigner.sendTransaction({
+                const tx = await adminSigner.sendTransaction({
                   to: wallet.address,
                   value: ethers.parseEther("1.0")
                 });
+                await tx.wait(); // Wait for mining so balance update is reflected
+                console.log("[Identity] Fuel subsidy received.");
               } catch (e) {
                 console.error("Auto-fund failed:", e);
               }
@@ -73,17 +86,19 @@ function App() {
           }
         }
 
-        // 4. Update ETH Balance
-        try {
-          const ethBal = await provider.getBalance(wallet.address);
-          setBalance(ethers.formatEther(ethBal));
-        } catch (err) {
-          console.warn("Could not fetch balance", err);
-        }
+        // 4. Update Balance
+        const updateBalance = async () => {
+          try {
+            const ethBal = await provider.getBalance(wallet.address);
+            setBalance(ethers.formatEther(ethBal));
+          } catch (err) {
+            console.warn("Could not fetch balance", err);
+          }
+        };
+        await updateBalance();
 
         // 5. Check Registration Status
         try {
-          // If contract is not deployed or address is wrong, this might fail
           const isRegistered = await pizzaContract.registeredChefs(wallet.address);
 
           if (isRegistered) {
@@ -116,8 +131,8 @@ function App() {
     init();
   }, []);
 
-  // DEV FACUET
-  const dripFaucet = async () => {
+  // DEV FAUCET (SUBSIDY)
+  const dripFaucet = async (silent = false) => {
     try {
       const provider = new ethers.JsonRpcProvider(RPC_URL);
       const adminSigner = await provider.getSigner(0);
@@ -126,9 +141,16 @@ function App() {
         value: ethers.parseEther("1.0")
       });
       await tx.wait();
-      window.location.reload();
+
+      // Update balance locally without full reload if silent
+      const ethBal = await provider.getBalance(burnerWallet.address);
+      setBalance(ethers.formatEther(ethBal));
+
+      if (!silent) window.location.reload();
+      return true;
     } catch (err) {
-      alert("Faucet Failed.");
+      if (!silent) alert("Fuel Subsidy Failed. Ensure local node is running.");
+      return false;
     }
   };
 
@@ -139,9 +161,14 @@ function App() {
 
   // 3. Actions
   const handleRegister = async (username) => {
+    // Check fuel and attempt auto-drip if low
     if (parseFloat(balance) < 0.001) {
-      alert("Insufficient Funds! Use the DEV FAUCET first.");
-      return;
+      console.log("Fuel low, attempting emergency drip...");
+      const success = await dripFaucet(true);
+      if (!success) {
+        alert("CRITICAL: Blockchain node unreachable at http://127.0.0.1:8545. \n\nPlease ensure your local node is running with: \n'npx hardhat node'");
+        return;
+      }
     }
 
     if (!contract) return;
@@ -154,20 +181,18 @@ function App() {
       await tx.wait();
       console.log("✅ Blockchain registration complete");
 
-      // Step 2: Sync to Supabase for real-time UX
-      // NOTE: Event listener will sync this automatically from blockchain event
-      // Commenting out to avoid timeout if Supabase credentials are incomplete
-      /*
+      // Step 2: Smooth Transition (No reload)
+      // Fetch initial balance so the HUD is populated immediately
       try {
-        await registerPlayer(burnerWallet.address, username);
-        console.log("✅ Supabase sync complete");
-      } catch (supabaseError) {
-        console.warn("⚠️  Supabase sync failed (non-critical):", supabaseError);
-        // Don't block registration if Supabase fails - blockchain is source of truth
+        const coinAddress = await contract.pizzaCoin();
+        const coinContract = new ethers.Contract(coinAddress, PizzaCoinABI.abi, contract.runner);
+        const pVal = await coinContract.balanceOf(burnerWallet.address);
+        setPzzaBalance(ethers.formatEther(pVal));
+      } catch (e) {
+        console.error("Post-reg balance fetch error", e);
       }
-      */
 
-      window.location.reload();
+      setGameState("GAME");
     } catch (err) {
       console.error("Registration failed:", err);
       alert("Registration failed. Please try again.");
@@ -193,6 +218,18 @@ function App() {
     setActiveRoomId(null);
   };
 
+  const refreshBalances = async () => {
+    if (!contract || !burnerWallet) return;
+    try {
+      const coinAddress = await contract.pizzaCoin();
+      const coinContract = new ethers.Contract(coinAddress, PizzaCoinABI.abi, contract.runner);
+      const pVal = await coinContract.balanceOf(burnerWallet.address);
+      setPzzaBalance(ethers.formatEther(pVal));
+    } catch (e) {
+      console.error("Coin fetch error", e);
+    }
+  };
+
   // 4. Render
   if (appView === 'SPLASH') {
     return <SplashScreen onComplete={() => setAppView('LOADING')} />;
@@ -213,14 +250,21 @@ function App() {
   if (gameState === "REGISTER") {
     return (
       <>
-        <Registration onRegister={handleRegister} isRegistering={isRegistering} />
-        <div style={{ textAlign: 'center', marginTop: '30px' }}>
-          <p style={{ color: parseFloat(balance) > 0 ? '#0f0' : '#f00', marginBottom: '10px' }}>
-            GAS RESERVES: {parseFloat(balance).toFixed(4)} ETH
+        <Registration
+          onRegister={handleRegister}
+          isRegistering={isRegistering}
+          walletAddress={burnerWallet?.address}
+          isContractMissing={isContractMissing}
+        />
+        <div style={{ textAlign: 'center', marginTop: '30px', fontFamily: 'monospace' }}>
+          <p style={{ color: parseFloat(balance) > 0 ? '#0f0' : '#f00', marginBottom: '10px', fontSize: '12px' }}>
+            NODE CONNECTION: {parseFloat(balance) > 0 ? 'STABLE' : 'ESTABLISHING...'}
           </p>
-          <button onClick={dripFaucet} disabled={parseFloat(balance) > 0.5} style={{
-            background: '#222', color: '#0f0', border: '1px solid #0f0', padding: '10px 20px', cursor: 'pointer', opacity: parseFloat(balance) > 0.5 ? 0.5 : 1
-          }}>REQUEST GAS SUBSIDY</button>
+          {parseFloat(balance) <= 0 && (
+            <button onClick={() => dripFaucet()} style={{
+              background: '#222', color: '#0f0', border: '1px solid #0f0', padding: '10px 20px', cursor: 'pointer'
+            }}>MANUAL UPLINK INITIALIZATION</button>
+          )}
         </div>
       </>
     );
@@ -247,7 +291,7 @@ function App() {
             <button className="btn-small" onClick={() => { navigator.clipboard.writeText(burnerWallet?.address); alert("Copied!"); }}>COPY</button>
           </div>
           <p style={{ fontSize: '10px', color: '#555', marginTop: '5px' }}>
-            FUEL: {parseFloat(balance).toFixed(4)} ETH
+            UPLINK CREDIT: {parseFloat(balance).toFixed(4)}
           </p>
         </div>
 
@@ -276,6 +320,7 @@ function App() {
             roomId={activeRoomId}
             walletAddress={burnerWallet?.address}
             onLeaveRoom={handleLeaveRoom}
+            onSliceBought={refreshBalances}
           />
         )}
       </div>

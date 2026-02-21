@@ -174,6 +174,44 @@ export async function removeSession(walletAddress, roomId) {
 }
 
 /**
+ * Get all active sessions for a specific room
+ * @param {string} roomId - Room identifier
+ */
+export async function getActiveSessions(roomId) {
+    const { data, error } = await supabase
+        .from('active_sessions')
+        .select('*')
+        .eq('room_id', roomId)
+
+    if (error) {
+        console.error('Failed to fetch active sessions:', error)
+        throw error
+    }
+
+    return data || []
+}
+
+/**
+ * Subscribe to active session updates for a specific room
+ * @param {string} roomId - Room identifier
+ * @param {Function} callback - Function to call when sessions change
+ */
+export function subscribeToActiveSessions(roomId, callback) {
+    return supabase
+        .channel(`sessions-${roomId}`)
+        .on('postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'active_sessions',
+                filter: `room_id=eq.${roomId}`
+            },
+            callback
+        )
+        .subscribe()
+}
+
+/**
  * Update player's last seen timestamp
  * @param {string} walletAddress - Player's wallet address
  */

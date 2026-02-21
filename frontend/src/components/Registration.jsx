@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import './Registration.css';
 
-export function Registration({ onRegister, isRegistering }) {
+export function Registration({ onRegister, isRegistering, walletAddress, isContractMissing }) {
     const [username, setUsername] = useState("");
 
     const handleSubmit = () => {
-        if (!username.trim()) return;
+        if (!username.trim() || isContractMissing) return;
         onRegister(username);
+    };
+
+    const getButtonText = () => {
+        if (isContractMissing) return "SYSTEM ERROR: DEPLOYMENT REQUIRED";
+        if (isRegistering) return "AUTHORIZING...";
+        return "[ AUTHORIZE & ENTER LOBBY ]";
     };
 
     return (
@@ -15,8 +21,10 @@ export function Registration({ onRegister, isRegistering }) {
             <div className="registration-form-section">
                 <div className="registration-content">
                     <h1>🕵️ SYNDICATE REGISTRATION</h1>
-                    <p style={{ color: '#aaa', marginBottom: '20px', fontFamily: 'monospace' }}>
-                        Identify yourself, Network Agent.
+                    <p style={{ color: isContractMissing ? '#f00' : '#aaa', marginBottom: '20px', fontFamily: 'monospace' }}>
+                        {isContractMissing
+                            ? "ERROR: Core Logic not found. Run deployment script."
+                            : "Identify yourself, Network Agent."}
                     </p>
 
                     <input
@@ -24,6 +32,7 @@ export function Registration({ onRegister, isRegistering }) {
                         maxLength="20"
                         placeholder="ENTER WORKER CALLSIGN"
                         value={username}
+                        disabled={isContractMissing}
                         onChange={(e) => setUsername(e.target.value.toUpperCase())}
                         style={{
                             width: '100%',
@@ -32,10 +41,11 @@ export function Registration({ onRegister, isRegistering }) {
                             textAlign: 'center',
                             marginBottom: '20px',
                             background: '#000',
-                            border: '2px solid #0f0',
-                            color: '#0f0',
+                            border: `2px solid ${isContractMissing ? '#f00' : '#0f0'}`,
+                            color: isContractMissing ? '#f00' : '#0f0',
                             fontFamily: 'Courier New, monospace',
-                            boxShadow: '0 0 10px rgba(0, 255, 0, 0.2)'
+                            boxShadow: `0 0 10px ${isContractMissing ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 255, 0, 0.2)'}`,
+                            opacity: isContractMissing ? 0.5 : 1
                         }}
                     />
 
@@ -48,7 +58,8 @@ export function Registration({ onRegister, isRegistering }) {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '15px'
+                        gap: '15px',
+                        opacity: isContractMissing ? 0.3 : 1
                     }}>
                         <div style={{ fontSize: '30px' }}>🪙</div>
                         <div style={{ textAlign: 'left' }}>
@@ -64,27 +75,27 @@ export function Registration({ onRegister, isRegistering }) {
                         color: '#555',
                         fontFamily: 'monospace'
                     }}>
-                        <p>connection: <span style={{ color: '#0f0' }}>BASE_SEPOLIA_NODE_04</span></p>
-                        <p>auth_key: <span style={{ color: '#0f0' }}>[0x...3FF5]</span></p>
+                        <p>connection: <span style={{ color: isContractMissing ? '#f00' : '#0f0' }}>{isContractMissing ? 'OFFLINE' : 'BASE_SEPOLIA_NODE_04'}</span></p>
+                        <p>auth_key: <span style={{ color: '#0f0' }}>[{walletAddress?.substring(0, 8)}...{walletAddress?.substring(38)}]</span></p>
                     </div>
 
                     <button
                         onClick={handleSubmit}
-                        disabled={!username || isRegistering}
+                        disabled={!username || isRegistering || isContractMissing}
                         className="btn-primary"
                         style={{
                             width: '100%',
                             padding: '15px',
                             fontSize: '16px',
-                            background: isRegistering ? '#333' : '#0f0',
-                            color: isRegistering ? '#888' : '#000',
-                            border: 'none',
+                            background: (isRegistering || isContractMissing) ? '#333' : '#0f0',
+                            color: (isRegistering || isContractMissing) ? '#888' : '#000',
+                            border: isContractMissing ? '1px solid #f00' : 'none',
                             fontWeight: 'bold',
-                            cursor: isRegistering ? 'not-allowed' : 'pointer',
+                            cursor: (isRegistering || isContractMissing) ? 'not-allowed' : 'pointer',
                             textTransform: 'uppercase'
                         }}
                     >
-                        {isRegistering ? "AUTHORIZING..." : "[ AUTHORIZE & ENTER LOBBY ]"}
+                        {getButtonText()}
                     </button>
                 </div>
             </div>

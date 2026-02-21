@@ -43,6 +43,10 @@ contract PizzaStorage {
     // Mapping: RoomID => address of the current "King" (Landlord)
     mapping(string => address) public roomKings;
 
+    // --- Level Up State ---
+    mapping(string => bool) public roomLevelPaused;
+    mapping(string => mapping(uint256 => address)) public roomLevelWinners;
+
     // --- Economy & Identity ---
     address public pizzaCoin;
     mapping(address => bool) public registeredChefs;
@@ -56,10 +60,10 @@ contract PizzaStorage {
 
     /**
      * @dev Helper to calculate how many slices are in a level.
-     * Hybrid Square Growth: Level 1 = 4, Level 2 = 16, Level 3 = 36...
+     * Progression: Level 1 = 4 (2x2), Level 2 = 9 (3x3), Level 3 = 16 (4x4)...
      */
     function getGridSize(uint256 _level) public pure returns (uint256) {
-        uint256 side = _level * 2;
+        uint256 side = _level + 1;
         return side * side;
     }
 

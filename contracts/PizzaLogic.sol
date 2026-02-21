@@ -10,6 +10,9 @@ contract PizzaLogic is PizzaStorage {
     event SliceBought(string roomId, uint256 sliceId, address buyer);
     event RoomCreated(string roomId, string name, address creator);
     event WorkerRegistered(address indexed worker, string username); // ADDED FOR LISTENER
+    event RoomLevelUp(string roomId, uint256 newLevel);
+    event ToppingChanged(string roomId, uint256 toppingId);
+    event LevelWaiting(string roomId, uint256 level, address king);
 
     function initialize(address _pizzaCoinAddress) public {
         require(pizzaCoin == address(0), "Already initialized");
@@ -52,10 +55,21 @@ contract PizzaLogic is PizzaStorage {
         emit RoomCreated(_name, _name, msg.sender);
     }
 
+    /**
+     * @dev Get dynamic slice price. Increases 5% per slice bought in the room.
+     */
+    function getSlicePrice(string calldata _roomId) public view returns (uint256) {
+        Room storage r = rooms[_roomId];
+        uint256 baseCost = SLICE_COST;
+        // 5% increase linearly for every slice bought
+        return baseCost + ((baseCost * 5 * r.totalSlices) / 100);
+    }
+
     function buySlice(string calldata _roomId, uint256 _sliceId) public {
         Room storage r = rooms[_roomId];
         
         require(r.level > 0, "Parlor node offline");
+        require(!roomLevelPaused[_roomId], "Level transition in progress. Waiting for King.");
         require(registeredChefs[msg.sender], "Unauthorized worker");
         
         uint256 gridSize = getGridSize(r.level);
@@ -63,7 +77,8 @@ contract PizzaLogic is PizzaStorage {
         require(roomSlices[_roomId][_sliceId].owner == address(0), "Slice compromised");
 
         // Payment Settlement
-        bool success = PizzaCoin(pizzaCoin).transferFrom(msg.sender, address(this), SLICE_COST);
+        uint256 currentPrice = getSlicePrice(_roomId);
+        bool success = PizzaCoin(pizzaCoin).transferFrom(msg.sender, address(this), currentPrice);
         require(success, "PZZA funding failed");
 
         roomSlices[_roomId][_sliceId].owner = msg.sender;
@@ -74,6 +89,7 @@ contract PizzaLogic is PizzaStorage {
         totalSlicesMinted++;
 
         _checkConsensus(_roomId, gridSize);
+        _checkLevelUp(_roomId, gridSize);
 
         emit SliceBought(_roomId, _sliceId, msg.sender);
     }
@@ -88,6 +104,60 @@ contract PizzaLogic is PizzaStorage {
         }
     }
 
+    function _checkLevelUp(string memory _roomId, uint256 _gridSize) internal {
+        Room storage r = rooms[_roomId];
+        bool allOwned = true;
+        for (uint256 i = 0; i < _gridSize; i++) {
+            if (roomSlices[_roomId][i].owner == address(0)) {
+                allOwned = false;
+                break;
+            }
+        }
+        if (allOwned && !roomLevelPaused[_roomId]) {
+            roomLevelPaused[_roomId] = true;
+            address king = roomKings[_roomId];
+            
+            // Record the winner for this level
+            roomLevelWinners[_roomId][r.level] = king;
+
+            // Give prize
+            if (king != address(0)) {
+                PizzaCoin(pizzaCoin).mint(king, 5000 * 10**18); // 5,000 PZZA prize
+            }
+
+            emit LevelWaiting(_roomId, r.level, king);
+        }
+    }
+
+    // Called by the King to select a topping and advance the board layout
+    function advanceLevel(string calldata _roomId, uint256 _toppingId) public {
+        Room storage r = rooms[_roomId];
+        require(roomLevelPaused[_roomId], "Room not waiting for transition");
+        require(roomKings[_roomId] == msg.sender, "Only King can advance the level");
+        
+        uint256 oldGridSize = getGridSize(r.level);
+        for (uint256 i = 0; i < oldGridSize; i++) {
+            roomSlices[_roomId][i].toppingId = _toppingId;
+        }
+
+        r.level++;
+        roomLevelPaused[_roomId] = false;
+
+        emit ToppingChanged(_roomId, _toppingId);
+        emit RoomLevelUp(_roomId, r.level);
+    }
+
+    function changeParlorTopping(string calldata _roomId, uint256 _toppingId) public {
+        require(roomKings[_roomId] == msg.sender, "Only King can change toppings");
+        Room storage r = rooms[_roomId];
+        // During gameplay, king can still change toppings on current slices
+        uint256 gridSize = getGridSize(r.level);
+        for (uint256 i = 0; i < gridSize; i++) {
+            roomSlices[_roomId][i].toppingId = _toppingId;
+        }
+        emit ToppingChanged(_roomId, _toppingId);
+    }
+
     // View helper for password check
     function verifyRoomPassword(string calldata _roomId, string calldata _candidate) public view returns (bool) {
         Room storage r = rooms[_roomId];
@@ -97,5 +167,19 @@ contract PizzaLogic is PizzaStorage {
 
     function getAllRooms() public view returns (string[] memory) {
         return allRoomIds;
+    }
+
+    /**
+     * @dev Fetch all slice owners for a room in one call. 
+     * Efficient for "Blockchain Scan" fallback mode.
+     */
+    function getRoomSlicesData(string calldata _roomId) public view returns (address[] memory) {
+        Room storage r = rooms[_roomId];
+        uint256 gridSize = getGridSize(r.level);
+        address[] memory owners = new address[](gridSize);
+        for (uint256 i = 0; i < gridSize; i++) {
+            owners[i] = roomSlices[_roomId][i].owner;
+        }
+        return owners;
     }
 }

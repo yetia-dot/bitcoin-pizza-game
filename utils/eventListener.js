@@ -53,6 +53,10 @@ class BlockchainEventListener {
             return true
         } catch (error) {
             console.error('❌ Initialization failed:', error.message)
+            if (error.message.includes('fetch failed')) {
+                console.error('   👉 This usually means the SUPABASE_URL in your .env is invalid or unreachable.')
+                console.error('   👉 Current URL:', process.env.SUPABASE_URL)
+            }
             return false
         }
     }
@@ -115,6 +119,25 @@ class BlockchainEventListener {
             } catch (err) {
                 console.error(`   ❌ Slice sync failed:`, err.message)
             }
+        })
+
+        // 5. Listen for Room Level Up
+        this.contract.on('RoomLevelUp', async (roomId, newLevel) => {
+            console.log(`📈 LEVEL UP: "${roomId}" leveled up to ${newLevel}!`)
+            try {
+                await supabase.from('rooms').update({
+                    level: Number(newLevel),
+                    updated_at: new Date().toISOString()
+                }).eq('room_id', roomId)
+                console.log(`   ✅ Level sync updated in Supabase`)
+            } catch (err) {
+                console.error(`   ❌ Level sync failed:`, err.message)
+            }
+        })
+
+        // 6. Listen for Topping Change
+        this.contract.on('ToppingChanged', async (roomId, toppingId) => {
+            console.log(`🌶️ TOPPING CHANGED: King changed "${roomId}" topping to ${toppingId}`)
         })
 
         console.log('✅ All event listeners active. Monitoring Syndicate activity...\n')
