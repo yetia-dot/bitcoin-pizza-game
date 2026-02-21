@@ -370,7 +370,8 @@ export function GameRoom({ contract, roomId, walletAddress, onLeaveRoom, onSlice
     }, [slices])
 
     const gridDimension = Math.sqrt(gridSize)
-    const isWaitingRoom = activeSessions.length < 2 && useSupabase
+    const hasGameStarted = roomData ? Number(roomData.totalSlices) > 0 || slices.some(s => s !== null) : slices.some(s => s !== null)
+    const isWaitingRoom = activeSessions.length < 2 && useSupabase && !hasGameStarted
 
     return (
         <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>

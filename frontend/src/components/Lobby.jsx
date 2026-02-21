@@ -49,8 +49,10 @@ export function Lobby({ contract, onJoinRoom, walletAddress }) {
         const params = new URLSearchParams(window.location.search);
         const inviteRoom = params.get('room');
         if (inviteRoom && rooms.length > 0) {
-            const roomData = rooms.find(r => r.id === inviteRoom);
+            // Find room case-insensitively since users might type it differently
+            const roomData = rooms.find(r => r.id.toUpperCase() === inviteRoom.toUpperCase());
             if (roomData) {
+                console.log("🔗 Auto-joining detected parlor:", roomData.id);
                 // Clear the URL to prevent looping
                 window.history.replaceState({}, '', window.location.pathname);
                 handleJoinAttempt(roomData);
